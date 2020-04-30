@@ -1,0 +1,203 @@
+---
+title: "La série temporelle"
+author: "Soufan, Raghad"
+date: "April 19, 2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ 
+La question:
+Les données du fichier hawai.csv comprennent les moyennes des mesures mensuelles de CO2 atmosphérique entre en ppm-volume collectées au Mauna Loa Observatory à Hawaii de mars 1958 à décembre 2001, inclusivement.
+Le travail consiste à:
+1. créer une série temporelle du CO2 à partir des données de hawai.csv
+2. séparer la série en parties d'entraînement (environ 70% des données) et en partie test
+3. créer un modèle ETS sur les données d'entraînement, puis projeter la prévision de CO2 atmosphérique pour comparer aux données test
+4. effectuer une analyse des résidus
+5. commenter: le modèle est-il fiable? Comment pourrait-il être amélioré?
+
+# Analyse de séries temporelles# :
+1. créer une série temporelle:
+La série temporelle est une suite de valeurs numériques représentant l'évolution d'une quantité spécifique au cours du temps.  Les transformations de données de séries temporelles exigent une structure de fichier de données dans laquelle chaque ligne représente un groupe d'observations à une heure différente, et l'intervalle de temps entre les observations est uniforme.
+Nos données du fichier hawai.csv comprennent les moyennes des mesures mensuelles de CO2 atmosphérique entre en ppm-volume de mars 1958 à décembre 2001. 
+Pour notre travail avec la série chronologique, plusieurs bibliothèques" librairies" sont nécessaires, ces bibliothèques sont:
+Library(tidyverse), library(lubridate),  library (forecast) et library (fpp2). Et on commence par importer le fichier "hawai.csv":
+
+```{r}
+library(tidyverse)
+library(forecast)
+library(fpp2)
+library(lubridate)
+
+hawai <- read_csv("C:/Users/RASOU15/Downloads/hawai.csv")
+View(hawai)
+```
+
+Pour créer une série temporelle "ts" du fichier (hawai.scv), il faut d'abord enlèver la date (la colonne de time), démarrer au premier événement de 1958, et chaque incrément a une fréquence de 1/12 unités(augmentations mensuelles) commençant en mars 1958 . Le code utilisé:
+
+```{r}
+hawai_ts <- ts(hawai %>% dplyr::select(-time),
+               start = c(hawai$time[1] %>% month(), 1),
+               frequency = 12)
+
+hawai_ts
+```
+
+- Structures dans les séries temporelles:
+La série chronologique pourrait être caractérisée par des structures couramment observées, et pour ca, nous visualisons la série temporelle en utilisant la fonction autoplot () :
+
+```{r}
+autoplot(hawai_ts)
+```
+
+De ce graphique, la tendance générale augmente régulièrement avec un cycle similaire chaque année et un effet saisonnier clair, ce qui signifie que le volume de "CO2", augmente régulièrement, en fonction du temps et de l'année.
+
+L'utilisation de la fonction "ggseasonplot" nous permet d'avoir une graphique saisonnier, et d'afficher les données dans un manier annuel.
+
+```{r}
+library(cowplot)
+theme_set(theme_grey()) # cowplot change le theme
+ggA <- ggseasonplot(window(hawai_ts[, 1], 1959, 2000-1/12)) + ggtitle("")
+plot(ggA, ncol = 1, labels = c("A"))
+```
+
+Toutes les lignes ont des tendences et des formes similaires. Leurs augmentations et diminutions sont régulières. Ça signifie que la distrubtion de "CO2" est uniforme dans le temps (mensuel et annuel) avec un effet saisonnier.
+
+- L’autocorrélation
+
+```{r}
+set.seed(64301)
+bruit_blanc <- ts(runif(100, 0, 4000), start = c(1958, 3), frequency = 12)
+
+plot_grid(autoplot(hawai_ts) + ggtitle("hawai_ts: Série temporelle"),
+          ggAcf(hawai_ts) + ggtitle("hawai_ts: Autocorrélation"),
+          gglagplot(hawai_ts) + ggtitle("hawai_ts: gglagplot"),
+          autoplot(bruit_blanc) + ggtitle("Bruit blanc: Série temporelle"),
+          ggAcf(bruit_blanc) + ggtitle("Bruit blanc: Autocorrélation"),
+          gglagplot(bruit_blanc) + ggtitle("hawai_ts: bruit_blanc"),
+          ncol = 3)
+```
+
+Le graphique de l’autocorrélation présente la corrélation d'une donné en fenction d'une donné qui suive. En comparaison avec la notion de bruit blanc, qui est un signal ne contenant pas de structure,c'est clair que les données du "hawai_ts" présentent des fluctuations (saisonnières ou cycliques), car ils sont bien corrlées avec les auter données,  et leur tendance et fluctuation saisonnière sont régulières avec le temps .
+dans ce cas, les graphiques de"logplot" ont une forme linéaire ce qui signifie que les données présentent une relation structurelle entre elles.
+
+- Signification statistique d’une série temporelle:
+1- Le graphique d’autocorrélation est à même d’inclure des seuils pour lesquels la corrélation est significative (lignes pointillées bleues).
+
+```{r}
+ggAcf(hawai_ts, ci = 0.95) + ggtitle("hawai_ts: Autocorrélation")
+```
+
+L’analyse des seuils de signification de l’autocorrélation indique sur la possibilité de conduire la série temporelle vers un processus de modélisation prédictive. Dans l'exemple ci-dessus, on remarque que les données situées près les unes des autres ,ce qui signifie que les données pourraient être plus difficiles à modéliser.
+
+2- Le test de Ljung-Box permet quant à lui de tester si la série temporelle entière peut être différenciée d’un bruit blanc.
+
+```{r}
+Box.test(hawai_ts, lag = 12, type = "Ljung-Box")
+bruit_blanc <- ts(runif(100, 0, 4000), start = c(1958, 3), frequency = 12)
+Box.test(bruit_blanc , lag = 12, type = "Ljung-Box")
+```
+
+ La probabilité que la série soit un bruit blanc est presque nulle.
+
+## Modélisation de séries temporelles##:
+
+2. séparer la série en parties d'entraînement (environ 70% des données) et en partie test:
+Séparons les données en entraînement (_tr) et en test (_te) avec une proportion 70/30 (p = 0.7).
+
+```{r}
+total_years<-c(2001.917-1958.167)
+total_years
+train_years<-total_years*0.7
+train_years
+hawai_ts_train <- window(hawai_ts, end = 1958+train_years)
+hawai_ts_test <- window(hawai_ts, start = 1958+train_years)
+```
+
+###3. créer un modèle ETS sur les données d'entraînement:
+
+
+1- Prétraitement des données:
+ 
+ 
+```{r}
+BoxCox.lambda(hawai_ts_train)
+hawai_ts_train %>%
+  ets(lambda = 0) %>%
+  forecast(h=12*10) %>%
+  autoplot()
+```
+
+Dans notre cas lambda = 0, la transformation est logarithmique.  La prévision nous donnent une augmantation régulière.
+
+La différenciation est également une forme de prétraitement pour rendre la série temporelle stationnaire en termes de tendance et de fluctuation saisonnière.
+
+
+```{r}
+plot_grid(hawai_ts_train %>% autoplot() + ggtitle("CO2"),
+         hawai_ts_train %>% diff(., lag = 12) %>% autoplot() + ggtitle("CO2 avec différenciation saisonnière"))
+          
+```
+
+
+Lançons la modélisation sur les données d’entraînement en utilisant le modèle ETS:
+
+
+```{r}
+hawai_tr <- ets(hawai_ts_train)
+hawai_tr
+autoplot(hawai_tr)
+```
+
+Le modèle retenu est un ETS(M,Ad,M), définissant dans l’ordre du type mulitiplicative (M) pour l'erreur et la saison, et du type additif Amorti (Ad) pou la tendance.
+Dans le modèle, la tendance est additive amorti(additive damped) avec saisonnalité multiplicative, les données levels sont multipliées par les données season pour obtenir la prévision. 
+
+La fonction forecast::ets() génère un modèle, mais pas de prédiction. Pour obtenir une prédiction, nous devons utiliser la fonction forecast::forecast():
+
+```{r}
+hawai_ets1 <- hawai_ts_train %>% ets()
+
+hawai_ets <- hawai_ets1 %>% forecast(h = 12*10)
+
+hawai_ets %>% autoplot()
+
+hawai_ets$model$par
+```
+
+Le modèle sélectionné est un ETS (M, Ad, M), avec une tendance additive et un effet saisonnier clair. On peut donc dire que le volume de "CO2" semble continuer d'augmenter régulièrement.
+Dans ce cas, l’optimisation de phi = 0.9, une valeur suffisamment faible pour que l’adoucissement soit fort.
+
+- projeter la prévision de CO2 atmosphérique pour comparer aux données test:
+
+L’évaluation du modèle peut être effectuée avec la fonction forecast::accuracy(), qui détecte automatiquement la série d’entraînement et la série de test si on lui fournit la série entière.
+
+```{r}
+accuracy(hawai_ets, hawai_ts)
+```
+ 
+ La performance d’une prévision peut être évaluée de différentes manières, mais l’erreur moyenne absolue échelonnée (mean absolute scaled error, MASE) est conseillée puisqu’elle ne dépend pas de la métrique de la quantité produite: plus la MASE se rapproche de zéro, meilleure est la prévision.
+
+#4. effectuer une analyse des résidus:
+
+```{r}
+checkresiduals(hawai_ets)
+summary(hawai_ets)
+
+library("e1071")
+kurtosis(residuals(hawai_ets), na.rm = TRUE)
+```
+
+-la  p-value = 6.216e-08, les résidus ne forment pas un bruit blanc. 
+-Le graphique d'auto-corrélation indique que Les résidus contiennent de l’autocorrélation, et cela est dû à 2 points au-dessus du seuil de 0,05.
+-Le graphique de la distribution des résidus montre des valeurs aberrantes, ainsi qu’une distribution plutôt pointue, qui donnerait un test de Kurtosis probablement élevé.(le résultat d'un test de kurtosis sur une distribution normale devrait être de 0).
+
+
+
+
+Conclusion:
+Le ETS est un module fiable,il fournit un modèle facilement interprétable et qui peut-être utilisé en prévision, tracé la série temporelle et décrit la tendance observée, un modèle simple permettant a determiner si les ingrédients sont saisonniers et fixé pour s'adapter à la tendance ou non, tracer la série "résiduelle" et  modélisé la tendance dans cette série temporelle. 
+
+
